@@ -1,0 +1,100 @@
+<!--
+ *  at first let's inject some intelligence into pybossa.js
+ *  this should not be part of regular pybossa apps
+-->
+<script>
+
+$.extend(pybossa, {
+
+    // fallback for user defined action
+    __taskLoaded: function(task, deferred) {
+        deferred.resolve(task);
+    },
+
+    taskLoaded: function(userFunc) {
+        this.__taskLoaded = userFunc;
+    },
+
+    presentTask: function(userFunc) {
+        this.__presentTask = userFunc;
+    },
+
+    run: function(appname) {
+        var me = this;
+
+        $.getJSON('/api/app?short_name=' + appname).done(function(app) {
+
+            app = app[0];
+
+            function getTask(offset) {
+                offset = offset || 0;
+                var def = $.Deferred();
+                $.getJSON('/api/app/' + app.id + '/newtask?offset=' + offset).done(function(task) {
+                    var udef = $.Deferred();
+                    me.__taskLoaded(task, udef);
+                    udef.done(function(task) {
+                        def.resolve(task);
+                    });
+                });
+                return def.promise();
+            }
+
+            function loop(task, answer) {
+                var nextLoaded = getTask(1),
+                    taskSolved = $.Deferred();
+
+                me.__presentTask(task, taskSolved);
+                $.when(nextLoaded, taskSolved).done(loop);
+            }
+            getTask().done(loop);
+
+        });
+
+    }
+
+});
+</script>
+
+<!--
+ * the REAL presenter starts below this line
+-->
+
+<p class="lead">Do you see a human in this photo? <span class="task-id badge"></span></p>
+
+<div style="margin-bottom:1em" class="img-container"></div>
+
+<p class="loading"><em>Loading next image...</em></p>
+<button class="btn btn-large btn-success btn-yes">Yes</button>
+<button class="btn btn-large btn-danger btn-no">No</button>
+<button class="btn btn-large btn-maybe">I don't know</button>
+
+<script>
+
+pybossa.taskLoaded(function(task, deferred) {
+    // load image from flickr
+    var img = $('<img />');
+    img.load(function() {
+        // continue as soon the image is loaded
+        console.log('next loaded', task.id);
+        deferred.resolve(task);
+    });
+    img.attr('src', task.info.url_b).css('height', 400);
+    task.info.image = img;
+});
+
+pybossa.presentTask(function(task, deferred) {
+    $('.img-container').html('').append(task.info.image);
+    $('.task-id').html(task.id);
+    $('.btn').off('click').on('click', function(evt) {
+        var answer = $(evt.target).html();
+        pybossa.saveTask(task.id, answer).done(function() {
+            deferred.resolve();
+        });
+        $('.loading').fadeIn(500);
+    });
+    $('.loading').hide();
+});
+
+pybossa.run('flickrperson2');
+
+</script>
